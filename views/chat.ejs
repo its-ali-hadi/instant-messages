@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نافذة المحادثة - <%= user %></title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <header class="chat-header">
+            <h2>محادثة بين User 1 و User 2</h2>
+            <div class="user-info">
+                أنت: <span class="current-user"><%= user %></span>
+                <button id="clearChat" class="btn clear-btn">مسح المحادثة</button>
+            </div>
+        </header>
+        
+        <div class="chat-messages" id="chatMessages">
+            <% messages.forEach(function(message) { %>
+                <div class="message <%= message.sender === user ? 'sent' : 'received' %>" data-id="<%= message.id %>">
+                    <div class="message-content <%= message.read ? 'read' : 'unread' %>">
+                        <% if (message.file) { %>
+                            <div class="file-message">
+                                <% if (message.file.mimetype.startsWith('image/')) { %>
+                                    <img src="/download/<%= message.file.filename %>" alt="صورة مرسلة" class="file-preview">
+                                <% } else { %>
+                                    <div class="file-icon">
+                                        <%= message.file.originalname %>
+                                    </div>
+                                <% } %>
+                                <a href="/download/<%= message.file.filename %>" download="<%= message.file.originalname %>" class="download-btn">تنزيل</a>
+                            </div>
+                        <% } %>
+                        
+                        <% if (message.text) { %>
+                            <p><%= message.text %></p>
+                        <% } %>
+                        
+                        <div class="message-meta">
+                            <span class="timestamp"><%= new Date(message.timestamp).toLocaleString('en-US') %></span>
+                            <% if (message.sender === user) { %>
+                                <span class="read-status">
+                                    <% if (message.read) { %>
+                                        ✓ <%= new Date(message.readTimestamp).toLocaleString('en-US') %>
+                                    <% } else { %>
+                                        ✓
+                                    <% } %>
+                                </span>
+                            <% } %>
+                        </div>
+                    </div>
+                </div>
+            <% }); %>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator" style="display: none;">
+            <span id="typingText"></span>
+        </div>
+        
+        <!-- إضافة مؤشر العد التنازلي -->
+        <div class="cooldown-indicator" id="cooldownIndicator">
+            يرجى الانتظار <span id="cooldownSeconds">1</span> ثانية قبل إرسال رسالة جديدة
+        </div>
+        
+        <form class="message-form" id="messageForm" enctype="multipart/form-data">
+            <div class="input-group">
+                <input type="text" name="text" id="messageInput" placeholder="اكتب رسالتك هنا..." autocomplete="off">
+                <input type="file" name="file" id="fileInput" accept="image/*,.pdf,.doc,.docx" style="display: none;">
+                <label for="fileInput" class="file-label">📎</label>
+                <button type="submit" class="send-btn">إرسال</button>
+            </div>
+            <div id="filePreview" class="file-preview-container"></div>
+        </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+</html>
