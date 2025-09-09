@@ -1,14 +1,44 @@
-require('dotenv').config();
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const { Server } = require('socket.io');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// إعداد Express مع منع التخزين المؤقت للصفحات
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
+// إعداد Socket.io مع تحسينات للجوال
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  },
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+// تحسين إدارة اتصالات Socket.io
+io.engine.on("initial_headers", (headers, req) => {
+  headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private";
+  headers["Pragma"] = "no-cache";
+  headers["Expires"] = "0";
+});
+
+io.engine.on("headers", (headers, req) => {
+  headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private";
+  headers["Pragma"] = "no-cache";
+  headers["Expires"] = "0";
+});
 
 // التأكد من وجود المجلدات اللازمة
 const dataDir = './data';
@@ -35,9 +65,8 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB كحد أقصى
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
-    // قبول الصور وملفات PDF وWord فقط
     if (file.mimetype.startsWith('image/') || 
         file.mimetype === 'application/pdf' || 
         file.mimetype === 'application/msword' ||
@@ -79,6 +108,22 @@ app.get('/chat', (req, res) => {
   }
   
   res.render('chat', { user, messages });
+});
+
+// مسار للحصول على الرسائل
+app.get('/get-messages', (req, res) => {
+  let messages = [];
+  try {
+    if (fs.existsSync('./data/messages.json')) {
+      const data = fs.readFileSync('./data/messages.json', 'utf8');
+      messages = JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('خطأ في تحميل الرسائل:', err);
+    return res.status(500).json({ error: 'فشل في تحميل الرسائل' });
+  }
+  
+  res.json(messages);
 });
 
 // مسار إرسال الرسائل
@@ -164,6 +209,11 @@ app.get('/download/:filename', (req, res) => {
   }
 });
 
+// مسار لفحص حالة الخادم
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
 // إعداد Socket.io للاتصال في الوقت الحقيقي
 io.on('connection', (socket) => {
   console.log('مستخدم متصل');
@@ -205,8 +255,8 @@ io.on('connection', (socket) => {
     io.emit('messagesRead', { reader: data.currentUser });
   });
   
-  socket.on('disconnect', () => {
-    console.log('مستخدم غير متصل');
+  socket.on('disconnect', (reason) => {
+    console.log('مستخدم غير متصل:', reason);
   });
 });
 

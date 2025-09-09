@@ -1,5 +1,197 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const socket = io();
+    // إدارة اتصال Socket.io مع إعادة الاتصال التلقائي
+    let socket;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 10;
+    
+    function initSocket() {
+        socket = io({
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000
+        });
+        
+        setupSocketEvents();
+    }
+    
+    function setupSocketEvents() {
+        // التعامل مع الاتصال
+        socket.on('connect', function() {
+            console.log('متصل بالخادم');
+            reconnectAttempts = 0;
+            hideConnectionStatus();
+            
+            // إعادة تحميل الرسائل عند الاتصال
+            loadMessages();
+        });
+        
+        socket.on('disconnect', function(reason) {
+            console.log('انقطع الاتصال: ', reason);
+            showConnectionStatus('انقطع الاتصال، جاري إعادة المحاولة...');
+        });
+        
+        socket.on('reconnect_attempt', function(attempt) {
+            reconnectAttempts = attempt;
+            console.log('محاولة إعادة الاتصال: ', attempt);
+            showConnectionStatus(`محاولة إعادة الاتصال (${attempt}/${MAX_RECONNECT_ATTEMPTS})...`);
+        });
+        
+        socket.on('reconnect', function() {
+            console.log('أعيد الاتصال بنجاح');
+            hideConnectionStatus();
+        });
+        
+        socket.on('reconnect_failed', function() {
+            console.log('فشلت جميع محاولات إعادة الاتصال');
+            showConnectionStatus('فشل الاتصال، يرجى تحديث الصفحة', true);
+        });
+        
+        // بقية الأحداث
+        socket.on('newMessage', function(message) {
+            addMessageToChat(message);
+            scrollToBottom();
+            
+            if (message.sender !== currentUser) {
+                socket.emit('messageRead', { currentUser });
+            }
+        });
+        
+        socket.on('messagesRead', function(data) {
+            if (data.reader !== currentUser) {
+                updateReadStatus();
+            }
+        });
+        
+        socket.on('userTyping', function(data) {
+            if (data.user !== currentUser) {
+                if (data.isTyping) {
+                    typingText.textContent = `${data.user} يكتب الآن...`;
+                    typingIndicator.style.display = 'block';
+                } else {
+                    typingIndicator.style.display = 'none';
+                }
+            }
+        });
+        
+        socket.on('chatCleared', function() {
+            chatMessages.innerHTML = '';
+        });
+    }
+    
+    // إظهار حالة الاتصال
+    function showConnectionStatus(message, isError = false) {
+        let statusElement = document.getElementById('connectionStatus');
+        
+        if (!statusElement) {
+            statusElement = document.createElement('div');
+            statusElement.id = 'connectionStatus';
+            statusElement.style.cssText = `
+                position: fixed;
+                top: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 10px 15px;
+                border-radius: 5px;
+                z-index: 1000;
+                font-size: 14px;
+                text-align: center;
+                max-width: 80%;
+            `;
+            document.body.appendChild(statusElement);
+        }
+        
+        statusElement.textContent = message;
+        statusElement.style.backgroundColor = isError ? '#e74c3c' : '#f39c12';
+        statusElement.style.color = 'white';
+        statusElement.style.display = 'block';
+    }
+    
+    function hideConnectionStatus() {
+        const statusElement = document.getElementById('connectionStatus');
+        if (statusElement) {
+            statusElement.style.display = 'none';
+        }
+    }
+    
+    // تحميل الرسائل من الخادم
+    function loadMessages() {
+        fetch('/get-messages?_=' + new Date().getTime()) // منع التخزين المؤقت
+            .then(response => response.json())
+            .then(messages => {
+                chatMessages.innerHTML = '';
+                messages.forEach(message => {
+                    addMessageToChat(message);
+                });
+                scrollToBottom();
+                
+                // تحديث حالة القراءة للرسائل القديمة
+                const otherUserMessages = document.querySelectorAll('.message.received');
+                if (otherUserMessages.length > 0) {
+                    socket.emit('messageRead', { currentUser });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading messages:', error);
+            });
+    }
+    
+    // تحديث حالة القراءة
+    function updateReadStatus() {
+        document.querySelectorAll('.message.sent').forEach(msg => {
+            const messageId = msg.dataset.id;
+            const messageContent = msg.querySelector('.message-content');
+            
+            if (messageContent && messageContent.classList.contains('unread')) {
+                messageContent.classList.remove('unread');
+                messageContent.classList.add('read');
+                
+                const readStatus = msg.querySelector('.read-status');
+                if (readStatus) {
+                    readStatus.textContent = `✓ ${new Date().toLocaleString('en-US')}`;
+                }
+            }
+        });
+    }
+    
+    // بدء الاتصال
+    initSocket();
+    
+    // البقاء مستيقظاً على الجوال (منع الشاشة من النوم)
+    let wakeLock = null;
+    async function requestWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Wake Lock نشط');
+                
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake Lock تم إطلاقه');
+                });
+            }
+        } catch (err) {
+            console.error('فشل في تفعيل Wake Lock:', err);
+        }
+    }
+    
+    // طلب Wake Lock عند التفاعل مع الصفحة
+    document.addEventListener('click', function() {
+        if (!wakeLock) {
+            requestWakeLock();
+        }
+    });
+    
+    // إدارة visibility change لإعادة الاتصال عند العودة للتبويب
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && socket && !socket.connected) {
+            // إعادة الاتصال إذا كان التبويب مرئياً وغير متصل
+            socket.connect();
+        }
+    });
+    
+    // البقية كما كانت...
     const messageForm = document.getElementById('messageForm');
     const messageInput = document.getElementById('messageInput');
     const fileInput = document.getElementById('fileInput');
@@ -9,17 +201,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const typingText = document.getElementById('typingText');
     const clearChatBtn = document.getElementById('clearChat');
     const sendBtn = document.querySelector('.send-btn');
+    const cooldownIndicator = document.getElementById('cooldownIndicator');
+    const cooldownSeconds = document.getElementById('cooldownSeconds');
     
     // الحصول على معلمة المستخدم من URL
     const urlParams = new URLSearchParams(window.location.search);
     const currentUser = urlParams.get('user');
     
     let typingTimer;
-    const TYPING_TIMEOUT = 1000; // 1 ثانية
+    const TYPING_TIMEOUT = 1000;
     
     // متغيرات للمؤقت بين الرسائل
     let lastMessageTime = 0;
-    const MESSAGE_COOLDOWN = 1500; // 1 ثانية بين الرسائل
+    const MESSAGE_COOLDOWN = 1000;
     let isOnCooldown = false;
     let cooldownTimer = null;
     
@@ -68,6 +262,9 @@ document.addEventListener('DOMContentLoaded', function() {
         sendBtn.textContent = 'انتظر...';
         sendBtn.style.opacity = '0.7';
         
+        // إظهار مؤشر العد التنازلي
+        cooldownIndicator.style.display = 'block';
+        
         // تحديث العد التنازلي
         updateCooldown();
         
@@ -86,10 +283,14 @@ document.addEventListener('DOMContentLoaded', function() {
             sendBtn.disabled = false;
             sendBtn.textContent = 'إرسال';
             sendBtn.style.opacity = '1';
+            
+            // إخفاء مؤشر العد التنازلي
+            cooldownIndicator.style.display = 'none';
         } else {
             // عرض الوقت المتبقي
             const secondsLeft = Math.ceil(remaining / 1000);
             sendBtn.textContent = `انتظر ${secondsLeft}...`;
+            cooldownSeconds.textContent = secondsLeft;
         }
     }
     
@@ -188,56 +389,6 @@ document.addEventListener('DOMContentLoaded', function() {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
     
-    // التعامل مع الرسائل الجديدة من Socket.io
-    socket.on('newMessage', function(message) {
-        addMessageToChat(message);
-        scrollToBottom();
-        
-        // إذا كانت الرسالة من المستخدم الآخر، قم بتحديث حالة القراءة
-        if (message.sender !== currentUser) {
-            socket.emit('messageRead', { currentUser });
-        }
-    });
-    
-    // التعامل مع تحديثات حالة القراءة
-    socket.on('messagesRead', function(data) {
-        if (data.reader !== currentUser) {
-            document.querySelectorAll('.message.sent').forEach(msg => {
-                const messageId = msg.dataset.id;
-                const messageContent = msg.querySelector('.message-content');
-                
-                if (messageContent && messageContent.classList.contains('unread')) {
-                    // تغيير اللون إلى الأخضر للإشارة إلى أن الرسالة مقروءة
-                    messageContent.classList.remove('unread');
-                    messageContent.classList.add('read');
-                    
-                    // تحديث وقت القراءة إذا كان متوفراً في البيانات
-                    const readStatus = msg.querySelector('.read-status');
-                    if (readStatus) {
-                        readStatus.textContent = `✓ ${new Date().toLocaleString('en-US')}`;
-                    }
-                }
-            });
-        }
-    });
-    
-    // التعامل مع مؤشر الكتابة
-    socket.on('userTyping', function(data) {
-        if (data.user !== currentUser) {
-            if (data.isTyping) {
-                typingText.textContent = `${data.user} يكتب الآن...`;
-                typingIndicator.style.display = 'block';
-            } else {
-                typingIndicator.style.display = 'none';
-            }
-        }
-    });
-    
-    // التعامل مع مسح المحادثة
-    socket.on('chatCleared', function() {
-        chatMessages.innerHTML = '';
-    });
-    
     // إضافة رسالة إلى الدردشة
     function addMessageToChat(message) {
         const messageElement = document.createElement('div');
@@ -312,51 +463,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-});
-
-// بعد تعريف المتغيرات في الأعلى، أضف:
-const cooldownIndicator = document.getElementById('cooldownIndicator');
-const cooldownSeconds = document.getElementById('cooldownSeconds');
-
-// في دالة startCooldown، أضف:
-function startCooldown() {
-    isOnCooldown = true;
-    lastMessageTime = Date.now();
     
-    // تعطيل زر الإرسال
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'انتظر...';
-    sendBtn.style.opacity = '0.7';
-    
-    // إظهار مؤشر العد التنازلي
-    cooldownIndicator.style.display = 'block';
-    
-    // تحديث العد التنازلي
-    updateCooldown();
-    
-    cooldownTimer = setInterval(updateCooldown, 100);
-}
-
-// في دالة updateCooldown، عدل:
-function updateCooldown() {
-    const elapsed = Date.now() - lastMessageTime;
-    const remaining = MESSAGE_COOLDOWN - elapsed;
-    
-    if (remaining <= 0) {
-        clearInterval(cooldownTimer);
-        isOnCooldown = false;
-        
-        // تمكين زر الإرسال مرة أخرى
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'إرسال';
-        sendBtn.style.opacity = '1';
-        
-        // إخفاء مؤشر العد التنازلي
-        cooldownIndicator.style.display = 'none';
-    } else {
-        // عرض الوقت المتبقي
-        const secondsLeft = Math.ceil(remaining / 1000);
-        sendBtn.textContent = `انتظر ${secondsLeft}...`;
-        cooldownSeconds.textContent = secondsLeft;
+    // تسجيل Service Worker لإدارة التخزين المؤقت
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/js/sw.js')
+                .then(function(registration) {
+                    console.log('ServiceWorker registered with scope: ', registration.scope);
+                })
+                .catch(function(error) {
+                    console.log('ServiceWorker registration failed: ', error);
+                });
+        });
     }
-}
+});
