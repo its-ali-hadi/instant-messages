@@ -3,27 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تطبيق المراسلة الفورية</title>
+    <title>تسجيل الدخول - تطبيق المراسلة</title>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
     <div class="container">
         <div class="welcome-card">
             <h1>مرحبًا بك في تطبيق المراسلة</h1>
-            <p>اختر هويتك للبدء في المحادثة</p>
-            
-            <div class="user-buttons">
-                <a href="/chat?user=user1" class="btn user1-btn">User 1</a>
-                <a href="/chat?user=user2" class="btn user2-btn">User 2</a>
-            </div>
-            
+            <p>الرجاء تسجيل الدخول باستخدام اسم المستخدم وكلمة المرور</p>
+
+            <% if (error) { %>
+                <div class="error"><%= error %></div>
+            <% } %>
+
+            <form action="/login" method="POST" class="login-form">
+                <div class="form-group">
+                    <label for="username">اسم المستخدم</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">كلمة المرور</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+
+                <button type="submit" class="btn">تسجيل الدخول</button>
+            </form>
+
             <div class="instructions">
                 <h3>تعليمات الاستخدام:</h3>
                 <ul>
-                    <li>اختر هويتك (User 1 أو User 2)</li>
-                    <li>يمكنك إرسال رسائل نصية</li>
-                    <li>يمكنك رفع الصور وملفات PDF وWord</li>
-                    <li>سترى تأكيد وصول الرسائل ووقت قراءتها</li>
+                    <li>قم بتسجيل الدخول للوصول إلى المحادثة</li>
+                    <li>يمكنك إرسال رسائل نصية أو ملفات (صور، PDF، Word)</li>
+                    <li>الأدمن فقط يمكنه إنشاء حسابات جديدة</li>
+                    <li>كل مستخدم يمكنه مراسلة الأشخاص المسموح لهم فقط</li>
                 </ul>
             </div>
         </div>

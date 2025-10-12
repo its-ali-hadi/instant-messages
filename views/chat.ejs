@@ -6,74 +6,86 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>نافذة المحادثة - <%= user %></title>
-    <link rel="stylesheet" href="/css/style.css?v=1.1">
+    <title>نافذة المحادثة - <%= user.name %></title>
+    <link rel="stylesheet" href="/css/style.css?v=1.2">
 </head>
 <body>
     <div class="chat-container">
         <header class="chat-header">
-            <h2>محادثة بين User 1 و User 2</h2>
+            <h2>مرحبًا <%= user.name %> ( <%= user.username %> )</h2>
+            <span class="current-user" style="display:none;"><%= user.username %></span>
             <div class="user-info">
-                أنت: <span class="current-user"><%= user %></span>
+                <a href="/logout" class="btn logout-btn">تسجيل الخروج</a>
                 <button id="clearChat" class="btn clear-btn">مسح المحادثة</button>
             </div>
         </header>
         
         <div class="chat-messages" id="chatMessages">
             <% messages.forEach(function(message) { %>
-                <div class="message <%= message.sender === user ? 'sent' : 'received' %>" data-id="<%= message.id %>">
-                    <div class="message-content <%= message.read ? 'read' : 'unread' %>">
-                        <% if (message.file) { %>
-                            <div class="file-message">
-                                <% if (message.file.mimetype.startsWith('image/')) { %>
-                                    <img src="/download/<%= message.file.filename %>" alt="صورة مرسلة" class="file-preview">
-                                <% } else { %>
-                                    <div class="file-icon">
-                                        <%= message.file.originalname %>
-                                    </div>
-                                <% } %>
-                                <a href="/download/<%= message.file.filename %>" download="<%= message.file.originalname %>" class="download-btn">تنزيل</a>
-                            </div>
-                        <% } %>
-                        
-                        <% if (message.text) { %>
-                            <p><%= message.text %></p>
-                        <% } %>
-                        
-                        <div class="message-meta">
-                            <span class="timestamp"><%= new Date(message.timestamp).toLocaleString('en-US') %></span>
-                            <% if (message.sender === user) { %>
-                                <span class="read-status">
-                                    <% if (message.read) { %>
-                                        ✓ <%= new Date(message.readTimestamp).toLocaleString('en-US') %>
+                <% if (
+        (message.sender === user.username && message.recipient === currentRecipient) ||
+        (message.sender === currentRecipient && message.recipient === user.username)
+     ) { %>
+
+                    <div class="message <%= message.sender === user.username ? 'sent' : 'received' %>" data-id="<%= message.id %>">
+                        <div class="message-content <%= message.read ? 'read' : 'unread' %>">
+                            <% if (message.file) { %>
+                                <div class="file-message">
+                                    <% if (message.file.mimetype.startsWith('image/')) { %>
+                                        <img src="/download/<%= message.file.filename %>" alt="صورة مرسلة" class="file-preview">
                                     <% } else { %>
-                                        ✓
+                                        <div class="file-icon"><%= message.file.originalname %></div>
                                     <% } %>
-                                </span>
+                                    <a href="/download/<%= message.file.filename %>" download="<%= message.file.originalname %>" class="download-btn">تنزيل</a>
+                                </div>
                             <% } %>
+
+                            <% if (message.text) { %>
+                                <p><%= message.text %></p>
+                            <% } %>
+
+                            <div class="message-meta">
+                                <span class="timestamp"><%= new Date(message.timestamp).toLocaleString('ar-EG') %></span>
+                                <% if (message.sender === user.username) { %>
+                                    <span class="read-status">
+                                        <% if (message.read) { %>
+                                            ✓ <%= new Date(message.readTimestamp).toLocaleString('ar-EG') %>
+                                        <% } else { %>
+                                            ✓
+                                        <% } %>
+                                    </span>
+                                <% } %>
+                            </div>
                         </div>
                     </div>
-                </div>
+                <% } %>
             <% }); %>
         </div>
-        
+
         <div class="typing-indicator" id="typingIndicator" style="display: none;">
             <span id="typingText"></span>
         </div>
-        
-        <!-- إضافة مؤشر العد التنازلي -->
-        <div class="cooldown-indicator" id="cooldownIndicator">
-            يرجى الانتظار <span id="cooldownSeconds">1</span> ثانية قبل إرسال رسالة جديدة
-        </div>
-        
+
+        <!-- اختيار المستلم -->
         <form class="message-form" id="messageForm" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="recipient">اختر المستلم:</label>
+                <select name="recipient" id="recipient" required>
+                <% user.allowed.forEach(function(r) { %>
+                    <option value="<%= r %>" <%= currentRecipient === r ? 'selected' : '' %>><%= r %></option>
+                <% }); %>
+                </select>
+
+            </div>
+
             <div class="input-group">
                 <input type="text" name="text" id="messageInput" placeholder="اكتب رسالتك هنا..." autocomplete="off">
                 <input type="file" name="file" id="fileInput" accept="image/*,.pdf,.doc,.docx" style="display: none;">
                 <label for="fileInput" class="file-label">📎</label>
                 <button type="submit" class="send-btn">إرسال</button>
+            </div>
+            <div class="cooldown-indicator" id="cooldownIndicator" style="display:none;">
+                يرجى الانتظار <span id="cooldownSeconds">1</span> ثانية قبل إرسال رسالة جديدة
             </div>
             <div id="filePreview" class="file-preview-container"></div>
         </form>

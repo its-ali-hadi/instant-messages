@@ -1,14 +1,25 @@
+require("dotenv").config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const server = http.createServer(app);
 
-// إعداد Express مع منع التخزين المؤقت للصفحات
+// إعداد Express
+app.set('view engine', 'ejs');
+app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(cookieParser());
+
+// منع التخزين المؤقت
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
@@ -16,180 +27,223 @@ app.use((req, res, next) => {
   next();
 });
 
-// إعداد Socket.io مع تحسينات للجوال
+// Socket.io
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  },
+  cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000
 });
 
-// تحسين إدارة اتصالات Socket.io
-io.engine.on("initial_headers", (headers, req) => {
-  headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private";
-  headers["Pragma"] = "no-cache";
-  headers["Expires"] = "0";
+// إنشاء مجلدات
+['./data', './uploads'].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 });
 
-io.engine.on("headers", (headers, req) => {
-  headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private";
-  headers["Pragma"] = "no-cache";
-  headers["Expires"] = "0";
-});
-
-// التأكد من وجود المجلدات اللازمة
-const dataDir = './data';
-const uploadsDir = './uploads';
-
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir);
-}
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-}
-
-// إعداد Multer لرفع الملفات
+// Multer لرفع الملفات
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
-  },
-  filename: function (req, file, cb) {
+  destination: (_, __, cb) => cb(null, 'uploads/'),
+  filename: (_, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + '-' + file.originalname);
   }
 });
-
 const upload = multer({
-  storage: storage,
+  storage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: function (req, file, cb) {
-    if (file.mimetype.startsWith('image/') || 
-        file.mimetype === 'application/pdf' || 
-        file.mimetype === 'application/msword' ||
-        file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      cb(null, true);
-    } else {
-      cb(new Error('نوع الملف غير مدعوم. يرجى رفع صورة أو ملف PDF أو Word فقط.'), false);
-    }
+  fileFilter: (_, file, cb) => {
+    const allowed = ['image/', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowed.some(type => file.mimetype.startsWith(type) || file.mimetype === type)) cb(null, true);
+    else cb(new Error('نوع الملف غير مدعوم'), false);
   }
 });
 
-// إعداد Express
-app.set('view engine', 'ejs');
-app.use(express.static('public'));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+// تحميل/حفظ المستخدمين
+function loadUsers() {
+  try {
+    return JSON.parse(fs.readFileSync('./data/users.json', 'utf8'));
+  } catch {
+    return [];
+  }
+}
+function saveUsers(users) {
+  fs.writeFileSync('./data/users.json', JSON.stringify(users, null, 2));
+}
 
-// مسار الصفحة الرئيسية
+// التحقق من JWT
+function authenticate(req, res, next) {
+  const token = req.cookies.token;
+  if (!token) return res.redirect('/');
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.clearCookie('token');
+    res.redirect('/');
+  }
+}
+
+// الصفحة الرئيسية (تسجيل الدخول)
 app.get('/', (req, res) => {
-  res.render('index');
+  res.render('index', { error: null });
 });
 
-// مسار نافذة المحادثة
-app.get('/chat', (req, res) => {
-  const user = req.query.user;
-  if (user !== 'user1' && user !== 'user2') {
-    return res.redirect('/');
+// تسجيل الدخول
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  const users = loadUsers();
+  const user = users.find(u => u.username === username);
+  if (!user || !bcrypt.compareSync(password, user.password)) {
+    return res.render('index', { error: 'بيانات الدخول غير صحيحة' });
   }
-  
-  // تحميل الرسائل السابقة
+  const token = jwt.sign(
+    { username: user.username, name: user.name, allowed: user.allowed },
+    process.env.JWT_SECRET,
+    { expiresIn: '1d' }
+  );
+  res.cookie('token', token, { httpOnly: true });
+  res.redirect('/chat');
+});
+
+// تسجيل الخروج
+app.get('/logout', (req, res) => {
+  res.clearCookie('token');
+  res.redirect('/');
+});
+
+// إنشاء مستخدم جديد (فقط للأدمن)
+//! ,
+app.post('/create-user', authenticate, (req, res) => {
+  if (req.user.username !== 'admin') return res.status(403).send('غير مصرح');
+
+  const { name, username, password, allowed } = req.body;
+  const users = loadUsers();
+  if (users.find(u => u.username === username)) {
+    return res.status(400).send('اسم المستخدم موجود مسبقًا');
+  }
+
+  const hashed = bcrypt.hashSync(password, 10);
+  users.push({ name, username, password: hashed, allowed: allowed.split(',') });
+  saveUsers(users);
+  res.send('تم إنشاء المستخدم بنجاح');
+});
+
+
+// استرجاع الرسائل بين المستخدم الحالي والمستلم المحدد
+app.get('/get-messages', authenticate, (req, res) => {
+  const recipient = req.query.recipient;
+
+  // تحقق أن المستلم موجود ضمن allowed
+  if (!recipient || !req.user.allowed.includes(recipient)) {
+    return res.status(403).json({ error: 'غير مسموح لك بفتح هذه المحادثة' });
+  }
+
   let messages = [];
   try {
     if (fs.existsSync('./data/messages.json')) {
-      const data = fs.readFileSync('./data/messages.json', 'utf8');
-      messages = JSON.parse(data);
+      messages = JSON.parse(fs.readFileSync('./data/messages.json', 'utf8'));
+    }
+  } catch (err) {
+    console.error('خطأ في قراءة الرسائل:', err);
+    return res.status(500).json({ error: 'خطأ في قراءة الرسائل' });
+  }
+
+  // فلترة الرسائل بين المستخدم الحالي والمستلم
+  const filtered = messages.filter(m =>
+    (m.sender === req.user.username && m.recipient === recipient) ||
+    (m.sender === recipient && m.recipient === req.user.username)
+  );
+
+  res.json(filtered);
+});
+
+
+// نافذة المحادثة
+app.get('/chat', authenticate, (req, res) => {
+  let messages = [];
+  try {
+    if (fs.existsSync('./data/messages.json')) {
+      messages = JSON.parse(fs.readFileSync('./data/messages.json', 'utf8'));
     }
   } catch (err) {
     console.error('خطأ في تحميل الرسائل:', err);
   }
-  
-  res.render('chat', { user, messages });
-});
 
-// مسار للحصول على الرسائل
-app.get('/get-messages', (req, res) => {
-  let messages = [];
-  try {
-    if (fs.existsSync('./data/messages.json')) {
-      const data = fs.readFileSync('./data/messages.json', 'utf8');
-      messages = JSON.parse(data);
-    }
-  } catch (err) {
-    console.error('خطأ في تحميل الرسائل:', err);
-    return res.status(500).json({ error: 'فشل في تحميل الرسائل' });
+  const recipient = req.query.recipient;
+
+  // تحقق أن المستلم موجود ضمن allowed
+  if (!recipient || !req.user.allowed.includes(recipient)) {
+    return res.status(403).send('غير مسموح لك بفتح هذه المحادثة');
   }
-  
-  res.json(messages);
+
+  // فلترة الرسائل بين المستخدم الحالي والمستلم
+  const filtered = messages.filter(m =>
+    (m.sender === req.user.username && m.recipient === recipient) ||
+    (m.sender === recipient && m.recipient === req.user.username)
+  );
+
+  res.render('chat', { user: req.user, messages: filtered, currentRecipient: recipient });
 });
 
-// مسار إرسال الرسائل
-app.post('/send-message', upload.single('file'), (req, res) => {
-  const { sender, text } = req.body;
-  const file = req.file;
-  
+
+// إرسال رسالة
+app.post('/send-message', authenticate, upload.single('file'), (req, res) => {
+  const { text, recipient } = req.body;
+  const sender = req.user.username;
+//   if (Array.isArray(recipient)) {
+//   recipient = recipient[0]; // خذ أول قيمة فقط
+// }
+
+  console.log("Sender from token:", req.user.username);
+console.log("Allowed list:", req.user.allowed);
+console.log("Recipient from body:", req.body.recipient);
+// console.log("Recipient after processing:", recipient);
+  // تحقق من أن المستلم مسموح به
+  if (!req.user.allowed.includes(recipient)) {
+    return res.status(403).json({ error: 'غير مسموح بمراسلة هذا المستخدم' });
+  }
+
   const message = {
     id: Date.now(),
     sender,
+    recipient,
     text: text || '',
     timestamp: new Date().toISOString(),
     read: false,
     readTimestamp: null
   };
-  
-  if (file) {
+
+  if (req.file) {
     message.file = {
-      filename: file.filename,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
     };
   }
-  
-  // حفظ الرسالة في ملف JSON
+
   let messages = [];
   try {
     if (fs.existsSync('./data/messages.json')) {
-      const data = fs.readFileSync('./data/messages.json', 'utf8');
-      messages = JSON.parse(data);
+      messages = JSON.parse(fs.readFileSync('./data/messages.json', 'utf8'));
     }
   } catch (err) {
     console.error('خطأ في تحميل الرسائل:', err);
   }
-  
+
   messages.push(message);
-  
-  try {
-    fs.writeFileSync('./data/messages.json', JSON.stringify(messages, null, 2));
-  } catch (err) {
-    console.error('خطأ في حفظ الرسالة:', err);
-    return res.status(500).json({ error: 'فشل في حفظ الرسالة' });
-  }
-  
-  // بث الرسالة الجديدة لجميع العملاء
+  fs.writeFileSync('./data/messages.json', JSON.stringify(messages, null, 2));
   io.emit('newMessage', message);
-  
   res.json({ success: true, message });
 });
 
-// مسار حذف المحادثة
-app.delete('/clear-chat', (req, res) => {
+// حذف المحادثة
+app.delete('/clear-chat', authenticate, (req, res) => {
   try {
-    // حذف جميع الرسائل
     fs.writeFileSync('./data/messages.json', JSON.stringify([], null, 2));
-    
-    // حذف جميع الملفات المرفوعة
-    const files = fs.readdirSync('./uploads');
-    for (const file of files) {
-      fs.unlinkSync(path.join('./uploads', file));
-    }
-    
-    // إرسال حدث لحذف المحادثة للجميع
+    fs.readdirSync('./uploads').forEach(file => fs.unlinkSync(path.join('./uploads', file)));
     io.emit('chatCleared');
-    
     res.json({ success: true });
   } catch (err) {
     console.error('خطأ في مسح المحادثة:', err);
@@ -197,64 +251,47 @@ app.delete('/clear-chat', (req, res) => {
   }
 });
 
-// مسار تحميل الملفات
-app.get('/download/:filename', (req, res) => {
-  const filename = req.params.filename;
-  const filePath = path.join(__dirname, 'uploads', filename);
-  
-  if (fs.existsSync(filePath)) {
-    res.download(filePath);
-  } else {
-    res.status(404).send('الملف غير موجود');
-  }
+// تحميل الملفات
+app.get('/download/:filename', authenticate, (req, res) => {
+  const filePath = path.join(__dirname, 'uploads', req.params.filename);
+  if (fs.existsSync(filePath)) res.download(filePath);
+  else res.status(404).send('الملف غير موجود');
 });
 
-// مسار لفحص حالة الخادم
-app.get('/health', (req, res) => {
+// فحص الخادم
+app.get('/health', (_, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// إعداد Socket.io للاتصال في الوقت الحقيقي
+// Socket.io
 io.on('connection', (socket) => {
   console.log('مستخدم متصل');
-  
+
   socket.on('userTyping', (data) => {
     socket.broadcast.emit('userTyping', data);
   });
-  
+
   socket.on('messageRead', (data) => {
-    // تحديث حالة الرسالة كمقروءة
     let messages = [];
     try {
       if (fs.existsSync('./data/messages.json')) {
-        const data = fs.readFileSync('./data/messages.json', 'utf8');
-        messages = JSON.parse(data);
+        messages = JSON.parse(fs.readFileSync('./data/messages.json', 'utf8'));
       }
     } catch (err) {
       console.error('خطأ في تحميل الرسائل:', err);
     }
-    
+
     const updatedMessages = messages.map(msg => {
       if (msg.sender !== data.currentUser && !msg.read) {
-        return {
-          ...msg,
-          read: true,
-          readTimestamp: new Date().toISOString()
-        };
+        return { ...msg, read: true, readTimestamp: new Date().toISOString() };
       }
       return msg;
     });
-    
-    try {
-      fs.writeFileSync('./data/messages.json', JSON.stringify(updatedMessages, null, 2));
-    } catch (err) {
-      console.error('خطأ في تحديث حالة القراءة:', err);
-    }
-    
-    // بث تحديث حالة القراءة للجميع
+
+    fs.writeFileSync('./data/messages.json', JSON.stringify(updatedMessages, null, 2));
     io.emit('messagesRead', { reader: data.currentUser });
   });
-  
+
   socket.on('disconnect', (reason) => {
     console.log('مستخدم غير متصل:', reason);
   });
@@ -262,5 +299,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`الخادم يعمل على المنفذ ${PORT}`);
+  console.log(`Server Ready on port: ${PORT}`);
 });
