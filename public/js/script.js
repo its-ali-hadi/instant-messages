@@ -1,4 +1,13 @@
 document.addEventListener('DOMContentLoaded', function () {
+
+
+
+
+
+
+
+
+
     let typingTimer;
     const TYPING_TIMEOUT = 1000;
 
@@ -138,6 +147,65 @@ function updateCooldown() {
     const urlParams = new URLSearchParams(window.location.search);
     const currentRecipient = urlParams.get('recipient');
 
+
+
+
+    // ===== معاينة الملف قبل الإرسال =====
+fileInput.addEventListener('change', function () {
+    filePreview.innerHTML = ''; // امسح أي معاينة قديمة
+
+    if (this.files && this.files[0]) {
+        const file = this.files[0];
+
+        // لو صورة → اعرضها
+        if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            img.className = 'file-preview';
+            filePreview.appendChild(img);
+        } else {
+            // لو ملف عادي → اعرض اسمه فقط
+            const div = document.createElement('div');
+            div.textContent = file.name;
+            div.className = 'file-icon';
+            filePreview.appendChild(div);
+        }
+    }
+});
+fileInput.addEventListener('change', function () {
+    filePreview.innerHTML = ''; // امسح أي معاينة قديمة
+
+    if (this.files && this.files[0]) {
+        const file = this.files[0];
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'preview-wrapper';
+
+        if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            img.className = 'file-preview';
+            wrapper.appendChild(img);
+        } else {
+            const div = document.createElement('div');
+            div.textContent = file.name;
+            div.className = 'file-icon';
+            wrapper.appendChild(div);
+        }
+
+        // زر الحذف (X)
+        const removeBtn = document.createElement('span');
+        removeBtn.className = 'remove-btn';
+        removeBtn.textContent = '✖';
+        removeBtn.addEventListener('click', () => {
+            fileInput.value = '';       // امسح الملف من input
+            filePreview.innerHTML = ''; // امسح المعاينة
+        });
+
+        wrapper.appendChild(removeBtn);
+        filePreview.appendChild(wrapper);
+    }
+});
     // ===== وظائف مساعدة =====
     function showConnectionStatus(message, isError = false) {
         let statusElement = document.getElementById('connectionStatus');

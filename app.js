@@ -18,6 +18,7 @@ app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
+app.use(blockMiddleware);
 
 // منع التخزين المؤقت
 app.use((req, res, next) => {
@@ -84,6 +85,38 @@ function authenticate(req, res, next) {
   }
 }
 
+// إدارة القائمة السوداء  (Backlist)
+const BACKLIST_FILE = path.join(__dirname, '/data/backlist.json');
+let backlist = [];
+
+// تحميل القائمة عند بدء التشغيل
+if (fs.existsSync(BACKLIST_FILE)) {
+  backlist = JSON.parse(fs.readFileSync(BACKLIST_FILE, 'utf8'));
+}
+
+// حفظ القائمة
+function saveBacklist() {
+  fs.writeFileSync(BACKLIST_FILE, JSON.stringify(backlist, null, 2), 'utf8');
+}
+
+// محاولات لكل IP
+const loginAttempts = {}; // { ip: count }
+
+function isBlocked(ip) {
+  return backlist.includes(ip);
+}
+
+// ميدل وير للتحقق من الحظر
+function blockMiddleware(req, res, next) {
+  const ip = req.ip;
+  if (isBlocked(ip)) {
+    return res.status(403).send('تم حظر هذا الـ IP بسبب محاولات تسجيل دخول فاشلة متكررة');
+  }
+  next();
+}
+
+
+
 // الصفحة الرئيسية (تسجيل الدخول)
 app.get('/', (req, res) => {
   res.render('index', { error: null });
@@ -91,10 +124,12 @@ app.get('/', (req, res) => {
 
 // تسجيل الدخول
 app.post('/login', (req, res) => {
+  const ip = req.ip;
   const { username, password } = req.body;
   const users = loadUsers();
   const user = users.find(u => u.username === username);
   if (!user || !bcrypt.compareSync(password, user.password)) {
+     recordFailedAttempt(ip);
     return res.render('index', { error: 'بيانات الدخول غير صحيحة' });
   }
   const token = jwt.sign(
@@ -102,9 +137,23 @@ app.post('/login', (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: '1d' }
   );
+  loginAttempts[ip] = 0; // إعادة تعيين المحاولات الناجحة 
   res.cookie('token', token, { httpOnly: true });
   res.redirect('/chat');
 });
+
+function recordFailedAttempt(ip) {
+  if (!loginAttempts[ip]) loginAttempts[ip] = 0;
+  loginAttempts[ip]++;
+
+  if (loginAttempts[ip] > 5) {
+    if (!backlist.includes(ip)) {
+      backlist.push(ip);
+      saveBacklist();
+      console.log(`🚫 Done Bandee User With IP: ${ip}`);
+    }
+  }
+}
 
 // تسجيل الخروج
 app.get('/logout', (req, res) => {
@@ -113,22 +162,40 @@ app.get('/logout', (req, res) => {
 });
 
 // إنشاء مستخدم جديد (فقط للأدمن)
-//! ,
 app.post('/create-user', authenticate, (req, res) => {
   if (req.user.username !== 'admin') return res.status(403).send('غير مصرح');
 
   const { name, username, password, allowed } = req.body;
   const users = loadUsers();
+
   if (users.find(u => u.username === username)) {
     return res.status(400).send('اسم المستخدم موجود مسبقًا');
   }
 
   const hashed = bcrypt.hashSync(password, 10);
-  users.push({ name, username, password: hashed, allowed: allowed.split(',') });
+
+  // قائمة الأشخاص المسموح لهم (مصفوفة)
+  const allowedList = allowed ? allowed.split(',').map(u => u.trim()).filter(Boolean) : [];
+
+  // إنشاء المستخدم الجديد
+  const newUser = { name, username, password: hashed, allowed: allowedList };
+
+  // أضف المستخدم الجديد إلى قاعدة البيانات
+  users.push(newUser);
+
+  // تحديث قوائم allowed عند الآخرين (العلاقة ثنائية)
+  allowedList.forEach(r => {
+    const otherUser = users.find(u => u.username === r);
+    if (otherUser) {
+      if (!otherUser.allowed.includes(username)) {
+        otherUser.allowed.push(username);
+      }
+    }
+  });
+
   saveUsers(users);
   res.send('تم إنشاء المستخدم بنجاح');
 });
-
 
 // استرجاع الرسائل بين المستخدم الحالي والمستلم المحدد
 app.get('/get-messages', authenticate, (req, res) => {
@@ -174,7 +241,7 @@ app.get('/chat', authenticate, (req, res) => {
 
   // تحقق أن المستلم موجود ضمن allowed
   if (!recipient || !req.user.allowed.includes(recipient)) {
-    return res.status(403).send('غير مسموح لك بفتح هذه المحادثة');
+     return res.render('choose', { user: req.user });
   }
 
   // فلترة الرسائل بين المستخدم الحالي والمستلم
@@ -265,7 +332,7 @@ app.get('/health', (_, res) => {
 
 // Socket.io
 io.on('connection', (socket) => {
-  console.log('مستخدم متصل');
+  console.log('user connected:', socket.id);
 
   socket.on('userTyping', (data) => {
     socket.broadcast.emit('userTyping', data);
@@ -293,7 +360,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('مستخدم غير متصل:', reason);
+    console.log('User disconnected:', reason);
   });
 });
 

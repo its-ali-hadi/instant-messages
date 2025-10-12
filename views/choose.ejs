@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>اختر محادثة</title>
+  <style>
+    body { font-family: sans-serif; direction: rtl; text-align: center; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 10px 0; }
+    a { text-decoration: none; padding: 10px 20px; background: #3498db; color: white; border-radius: 5px; }
+    a:hover { background: #2980b9; }
+  </style>
+</head>
+<body>
+  <h2>مرحباً <%= user.username %> 👋</h2>
+  <p>اختر الشخص الذي تريد التحدث معه:</p>
+  <ul>
+    <% user.allowed.forEach(function(r) { %>
+      <li><a href="/chat?recipient=<%= r %>"><%= r %></a></li><br>
+    <% }); %>
+  </ul>
+</body>
+</html>

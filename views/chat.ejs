@@ -12,9 +12,10 @@
 <body>
     <div class="chat-container">
         <header class="chat-header">
-            <h2>مرحبًا <%= user.name %> ( <%= user.username %> )</h2>
+            <h2>Form <%= user.username %> to ( <%= currentRecipient %> )</h2>
             <span class="current-user" style="display:none;"><%= user.username %></span>
             <div class="user-info">
+                <a href="/chat" class="btn logout-btn">قائمة الاختيار</a>
                 <a href="/logout" class="btn logout-btn">تسجيل الخروج</a>
                 <button id="clearChat" class="btn clear-btn">مسح المحادثة</button>
             </div>
@@ -68,7 +69,7 @@
 
         <!-- اختيار المستلم -->
         <form class="message-form" id="messageForm" enctype="multipart/form-data">
-            <div class="form-group">
+            <div class="form-group" style="display: none;">
                 <label for="recipient">اختر المستلم:</label>
                 <select name="recipient" id="recipient" required>
                 <% user.allowed.forEach(function(r) { %>
