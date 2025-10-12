@@ -258,14 +258,7 @@ app.get('/chat', authenticate, (req, res) => {
 app.post('/send-message', authenticate, upload.single('file'), (req, res) => {
   const { text, recipient } = req.body;
   const sender = req.user.username;
-//   if (Array.isArray(recipient)) {
-//   recipient = recipient[0]; // خذ أول قيمة فقط
-// }
 
-  console.log("Sender from token:", req.user.username);
-console.log("Allowed list:", req.user.allowed);
-console.log("Recipient from body:", req.body.recipient);
-// console.log("Recipient after processing:", recipient);
   // تحقق من أن المستلم مسموح به
   if (!req.user.allowed.includes(recipient)) {
     return res.status(403).json({ error: 'غير مسموح بمراسلة هذا المستخدم' });

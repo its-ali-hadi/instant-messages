@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Administrator",
+    "username": "admin",
+    "password": "$2b$10$1QpfWbOJfl3.d.14gGOXy.sLQ7EXz9vc/ETS5etXhi03fj1ANS9nS",
+    "allowed": []
+  },
+  {
+    "name": "User One",
+    "username": "user1",
+    "password": "$2b$10$4btKvLiH2ID3IUfhex11HuoybZbEXxdbG0o4FYoFUUs/pDF8GCNai",
+    "allowed": [
+      "user2",
+      "user3",
+      "user4"
+    ]
+  },
+  {
+    "name": "User Two",
+    "username": "user2",
+    "password": "$2b$10$wJh0dHj6AHoMeiQye1sP..0hcRHfiJpmpZDef01nR9xzpEnqig5BC",
+    "allowed": [
+      "user1"
+    ]
+  },
+  {
+    "name": "User Three",
+    "username": "user3",
+    "password": "$2b$10$91P9EQC5OgRigiaIG1GkIuhHWmcnQvuM44qA3jV3dbicNFlaOuNzm",
+    "allowed": [
+      "user1"
+    ]
+  },
+  {
+    "name": "User four",
+    "username": "user4",
+    "password": "$2b$10$2TJwWT92pgDMdX80hjiAi.Ld/xVPBa3h6B7C3gOf4YWDF2xsmaDoq",
+    "allowed": [
+      "user1"
+    ]
+  }
+]
