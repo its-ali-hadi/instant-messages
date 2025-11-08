@@ -139,6 +139,7 @@ app.post('/login', (req, res) => {
   );
   loginAttempts[ip] = 0; // إعادة تعيين المحاولات الناجحة 
   res.cookie('token', token, { httpOnly: true });
+  console.log(`✅ User Logged In: ${username} With IP: ${ip}`);
   res.redirect('/chat');
 });
 
@@ -249,7 +250,7 @@ app.get('/chat', authenticate, (req, res) => {
     (m.sender === req.user.username && m.recipient === recipient) ||
     (m.sender === recipient && m.recipient === req.user.username)
   );
-
+  console.log(`💬 Chat Opened Between ${req.user.username} and ${recipient}`);
   res.render('chat', { user: req.user, messages: filtered, currentRecipient: recipient });
 });
 
@@ -314,8 +315,12 @@ app.delete('/clear-chat', authenticate, (req, res) => {
 // تحميل الملفات
 app.get('/download/:filename', authenticate, (req, res) => {
   const filePath = path.join(__dirname, 'uploads', req.params.filename);
-  if (fs.existsSync(filePath)) res.download(filePath);
-  else res.status(404).send('الملف غير موجود');
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+    console.log(`📁 File Downloaded: ${req.params.filename} by ${req.user.username}`);
+  } else {
+    res.status(404).send('الملف غير موجود');
+  }
 });
 
 // فحص الخادم
