@@ -20,7 +20,6 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(blockMiddleware);
 
-// منع التخزين المؤقت
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
@@ -28,7 +27,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Socket.io
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ['websocket', 'polling'],
@@ -36,12 +34,10 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// إنشاء مجلدات
 ['./data', './uploads'].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 });
 
-// Multer لرفع الملفات
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, 'uploads/'),
   filename: (_, file, cb) => {
@@ -59,7 +55,6 @@ const upload = multer({
   }
 });
 
-// تحميل/حفظ المستخدمين
 function loadUsers() {
   try {
     return JSON.parse(fs.readFileSync('./data/users.json', 'utf8'));
@@ -71,7 +66,6 @@ function saveUsers(users) {
   fs.writeFileSync('./data/users.json', JSON.stringify(users, null, 2));
 }
 
-// التحقق من JWT
 function authenticate(req, res, next) {
   const token = req.cookies.token;
   if (!token) return res.redirect('/');
@@ -85,28 +79,22 @@ function authenticate(req, res, next) {
   }
 }
 
-// إدارة القائمة السوداء  (Backlist)
 const BACKLIST_FILE = path.join(__dirname, '/data/backlist.json');
 let backlist = [];
 
-// تحميل القائمة عند بدء التشغيل
 if (fs.existsSync(BACKLIST_FILE)) {
   backlist = JSON.parse(fs.readFileSync(BACKLIST_FILE, 'utf8'));
 }
 
-// حفظ القائمة
 function saveBacklist() {
   fs.writeFileSync(BACKLIST_FILE, JSON.stringify(backlist, null, 2), 'utf8');
 }
-
-// محاولات لكل IP
-const loginAttempts = {}; // { ip: count }
+const loginAttempts = {};
 
 function isBlocked(ip) {
   return backlist.includes(ip);
 }
 
-// ميدل وير للتحقق من الحظر
 function blockMiddleware(req, res, next) {
   const ip = req.ip;
   if (isBlocked(ip)) {
@@ -117,19 +105,16 @@ function blockMiddleware(req, res, next) {
 
 
 
-// الصفحة الرئيسية (تسجيل الدخول)
 app.get('/', (req, res) => {
   res.render('index', { error: null });
 });
-
-// تسجيل الدخول
 app.post('/login', (req, res) => {
   const ip = req.ip;
   const { username, password } = req.body;
   const users = loadUsers();
   const user = users.find(u => u.username === username);
   if (!user || !bcrypt.compareSync(password, user.password)) {
-     recordFailedAttempt(ip);
+    recordFailedAttempt(ip);
     return res.render('index', { error: 'بيانات الدخول غير صحيحة' });
   }
   const token = jwt.sign(
@@ -137,7 +122,7 @@ app.post('/login', (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: '1d' }
   );
-  loginAttempts[ip] = 0; // إعادة تعيين المحاولات الناجحة 
+  loginAttempts[ip] = 0;
   res.cookie('token', token, { httpOnly: true });
   console.log(`✅ User Logged In: ${username} With IP: ${ip}`);
   res.redirect('/chat');
@@ -156,13 +141,10 @@ function recordFailedAttempt(ip) {
   }
 }
 
-// تسجيل الخروج
 app.get('/logout', (req, res) => {
   res.clearCookie('token');
   res.redirect('/');
 });
-
-// إنشاء مستخدم جديد (فقط للأدمن)
 app.post('/create-user', authenticate, (req, res) => {
   if (req.user.username !== 'admin') return res.status(403).send('غير مصرح');
 
@@ -175,16 +157,12 @@ app.post('/create-user', authenticate, (req, res) => {
 
   const hashed = bcrypt.hashSync(password, 10);
 
-  // قائمة الأشخاص المسموح لهم (مصفوفة)
   const allowedList = allowed ? allowed.split(',').map(u => u.trim()).filter(Boolean) : [];
 
-  // إنشاء المستخدم الجديد
   const newUser = { name, username, password: hashed, allowed: allowedList };
 
-  // أضف المستخدم الجديد إلى قاعدة البيانات
   users.push(newUser);
 
-  // تحديث قوائم allowed عند الآخرين (العلاقة ثنائية)
   allowedList.forEach(r => {
     const otherUser = users.find(u => u.username === r);
     if (otherUser) {
@@ -198,11 +176,9 @@ app.post('/create-user', authenticate, (req, res) => {
   res.send('تم إنشاء المستخدم بنجاح');
 });
 
-// استرجاع الرسائل بين المستخدم الحالي والمستلم المحدد
 app.get('/get-messages', authenticate, (req, res) => {
   const recipient = req.query.recipient;
 
-  // تحقق أن المستلم موجود ضمن allowed
   if (!recipient || !req.user.allowed.includes(recipient)) {
     return res.status(403).json({ error: 'غير مسموح لك بفتح هذه المحادثة' });
   }
@@ -217,7 +193,6 @@ app.get('/get-messages', authenticate, (req, res) => {
     return res.status(500).json({ error: 'خطأ في قراءة الرسائل' });
   }
 
-  // فلترة الرسائل بين المستخدم الحالي والمستلم
   const filtered = messages.filter(m =>
     (m.sender === req.user.username && m.recipient === recipient) ||
     (m.sender === recipient && m.recipient === req.user.username)
@@ -227,7 +202,6 @@ app.get('/get-messages', authenticate, (req, res) => {
 });
 
 
-// نافذة المحادثة
 app.get('/chat', authenticate, (req, res) => {
   let messages = [];
   try {
@@ -240,12 +214,9 @@ app.get('/chat', authenticate, (req, res) => {
 
   const recipient = req.query.recipient;
 
-  // تحقق أن المستلم موجود ضمن allowed
   if (!recipient || !req.user.allowed.includes(recipient)) {
-     return res.render('choose', { user: req.user });
+    return res.render('choose', { user: req.user });
   }
-
-  // فلترة الرسائل بين المستخدم الحالي والمستلم
   const filtered = messages.filter(m =>
     (m.sender === req.user.username && m.recipient === recipient) ||
     (m.sender === recipient && m.recipient === req.user.username)
@@ -255,12 +226,9 @@ app.get('/chat', authenticate, (req, res) => {
 });
 
 
-// إرسال رسالة
 app.post('/send-message', authenticate, upload.single('file'), (req, res) => {
   const { text, recipient } = req.body;
   const sender = req.user.username;
-
-  // تحقق من أن المستلم مسموح به
   if (!req.user.allowed.includes(recipient)) {
     return res.status(403).json({ error: 'غير مسموح بمراسلة هذا المستخدم' });
   }
@@ -299,7 +267,6 @@ app.post('/send-message', authenticate, upload.single('file'), (req, res) => {
   res.json({ success: true, message });
 });
 
-// حذف المحادثة
 app.delete('/clear-chat', authenticate, (req, res) => {
   try {
     fs.writeFileSync('./data/messages.json', JSON.stringify([], null, 2));
@@ -312,7 +279,6 @@ app.delete('/clear-chat', authenticate, (req, res) => {
   }
 });
 
-// تحميل الملفات
 app.get('/download/:filename', authenticate, (req, res) => {
   const filePath = path.join(__dirname, 'uploads', req.params.filename);
   if (fs.existsSync(filePath)) {
@@ -323,12 +289,9 @@ app.get('/download/:filename', authenticate, (req, res) => {
   }
 });
 
-// فحص الخادم
 app.get('/health', (_, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
-
-// Socket.io
 io.on('connection', (socket) => {
   console.log('user connected:', socket.id);
 
